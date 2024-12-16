@@ -3,7 +3,7 @@
 .gitignore
 
 
-ckpt/*
+
 data
 data/*
 
