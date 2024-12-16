@@ -111,24 +111,60 @@ def normalize_keypoints(kpts, image_shape):
     return (kpts - center[:, None, :]) / scaling[:, None, :]
 
 
+# class CLIPEncoder(nn.Module):
+#     def __init__(self, freeze=True, resolution=None):
+#         super().__init__()
+#         clip_encoder, _, self.preprocess = open_clip.create_model_and_transforms("convnext_large_d_320", pretrained="laion2b_s29b_b131k_ft_soup")
+#         # We just assume preprocess is the same as our proprocess
+#         visual_model = clip_encoder.visual
+#         visual_model = list(visual_model.children())[0].children()
+#         visual_model0, visual_model1 = list(visual_model)[:-2]
+#         self.visual_encoder = torch.nn.Sequential(visual_model0, *list(visual_model1)[:-2])
+#         # For the visual encoder, [:-3] means [192,80,80] (default), [:-2] means [384,40,40] and [:-1] means [768,20,20]
+#         if freeze:
+#             for param in self.parameters():
+#                 param.requires_grad = False
+#         self.resolution = resolution
+
+#     def forward(self, x):
+#         if self.resolution:
+#             x = F.interpolate(x, self.resolution, mode="bilinear", align_corners=False)
+#         x = self.visual_encoder(x)
+#         return x.detach()
 class CLIPEncoder(nn.Module):
-    def __init__(self, freeze=True, resolution=None):
+    def __init__(self, freeze=True, resolution=None, include_early_layers=2, scales=[1.0, 0.75, 0.5]):
         super().__init__()
-        clip_encoder, _, self.preprocess = open_clip.create_model_and_transforms("convnext_large_d_320", pretrained="laion2b_s29b_b131k_ft_soup")
-        # We just assume preprocess is the same as our proprocess
+        clip_encoder, _, self.preprocess = open_clip.create_model_and_transforms(
+            "convnext_large_d_320", pretrained="laion2b_s29b_b131k_ft_soup"
+        )
+
+        # Extract early layers
         visual_model = clip_encoder.visual
         visual_model = list(visual_model.children())[0].children()
+        self.early_layers = torch.nn.Sequential(*list(visual_model)[:include_early_layers])
+
         visual_model0, visual_model1 = list(visual_model)[:-2]
         self.visual_encoder = torch.nn.Sequential(visual_model0, *list(visual_model1)[:-2])
-        # For the visual encoder, [:-3] means [192,80,80] (default), [:-2] means [384,40,40] and [:-1] means [768,20,20]
+
+        # Store scales for multiscale
+        self.scales = scales
+
+        # Freezing weights if specified
         if freeze:
             for param in self.parameters():
                 param.requires_grad = False
+
         self.resolution = resolution
 
     def forward(self, x):
-        if self.resolution:
-            x = F.interpolate(x, self.resolution, mode="bilinear", align_corners=False)
+        # Apply multiscale processing
+        scale_outputs = []
+        for scale in self.scales:
+            scaled_input = F.interpolate(x, scale_factor=scale, mode="bilinear", align_corners=False)
+            scale_outputs.append(self.early_layers(scaled_input))
+
+        # Combine the outputs from different scales (e.g., concatenate along channels)
+        x = torch.cat(scale_outputs, dim=1)  # Concatenate along the channel dimension
         x = self.visual_encoder(x)
         return x.detach()
 
