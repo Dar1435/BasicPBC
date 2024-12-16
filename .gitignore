@@ -6,8 +6,7 @@
 ckpt/*
 data
 data/*
-dataset/*
-datasets/*
+
 dataset_dev/*
 experiments/*
 result/*
